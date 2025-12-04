@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
+import org.apache.catalina.mapper.Mapper;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.CellType;
@@ -25,15 +26,23 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.seleniumapi.dto.BoughtStockToUpdate;
-import com.seleniumapi.dto.ExcelStockStat;
+import com.seleniumapi.dto.ExcelStock;
+import com.seleniumapi.dto.ExcelStockStatV2;
 import com.seleniumapi.dto.FilteredStock;
 import com.seleniumapi.dto.Price;
+import com.seleniumapi.services.seleniumAPIService;
 
 @Component
 public class ExcelUtil {
+	private  ObjectMapper mapper = new ObjectMapper();
+	
+	@Autowired
+	private seleniumAPIService seleniumAPIService;
 
 	public List<String> getSymbolsFromExcel(String inputDate) {
 		
@@ -45,7 +54,7 @@ public class ExcelUtil {
 			inputStream = new FileInputStream(new File(excelFilePath));
 			Workbook workbook;
 			workbook = new XSSFWorkbook(inputStream);
-			Sheet stocks2Sheet = workbook.getSheet("stock2.0");
+			Sheet stocks2Sheet = workbook.getSheet("Stock");
 			//TODO fix
 			for(int i= 400; i <= stocks2Sheet.getLastRowNum(); i++) {
 				Row row = stocks2Sheet.getRow(i);
@@ -122,10 +131,83 @@ public class ExcelUtil {
 		return stocksToUpdate;
 	}
 	
-	public List<ExcelStockStat> getExcelStockStat(){
+	public List<ExcelStock> getExcelStockStat(){
 		String excelFilePath = "/Users/leongl/Documents/Day3/Track.xlsx";
         FileInputStream inputStream;
-        List<ExcelStockStat> excelStockStat = new ArrayList<ExcelStockStat>();
+        List<ExcelStock> excelStockList = new ArrayList<>();
+        try {
+        	inputStream = new FileInputStream(new File(excelFilePath));
+			Workbook workbook;
+			workbook = new XSSFWorkbook(inputStream);
+			Sheet stocksSheet = workbook.getSheet("Stock"); //Sheet4
+			ExcelStock singleStock;
+			for(int i= 1; i < stocksSheet.getLastRowNum()-1; i++) { //stocksSheet.getLastRowNum()-1
+				
+				
+				Row row = stocksSheet.getRow(i);
+				
+				if(row.getCell(0).getStringCellValue()!=null) {
+					singleStock = new ExcelStock();
+					String date = row.getCell(0).getStringCellValue().replaceAll("/", "-");
+					String symbol = row.getCell(1).getStringCellValue().trim();
+					List<Price> stocksDataApi = seleniumAPIService.callThreeDatsData(symbol, date);
+					System.out.println("i: "+i);
+					//System.out.println("stocksDataApi.get(2): "+mapper.writeValueAsString(stocksDataApi));
+					singleStock.setDate(date);
+	            	singleStock.setSymbol(symbol);
+	            	singleStock.setName(row.getCell(2).getStringCellValue());
+	            	singleStock.setPrice(row.getCell(3).getNumericCellValue());
+	            	singleStock.setChange(row.getCell(4).getNumericCellValue());
+	            	singleStock.setVolume(row.getCell(5).getCellType()== CellType.BLANK? stocksDataApi.get(0).getVolume():row.getCell(5).getNumericCellValue());
+	            	singleStock.setThreeMonthsAvg(row.getCell(6).getStringCellValue());
+	            	singleStock.setMarketCap(row.getCell(7).getStringCellValue());
+	            	singleStock.setAdv(row.getCell(8).getNumericCellValue());
+	            	singleStock.setPricaeDay2(row.getCell(10).getCellType()== CellType.BLANK?stocksDataApi.get(1).getClose():row.getCell(10).getNumericCellValue() );
+	            	singleStock.setGainDay2(row.getCell(11)!=null && row.getCell(11).getCellType()!= CellType.BLANK?row.getCell(11).getNumericCellValue():(singleStock.getPricaeDay2()-singleStock.getPrice())/singleStock.getPrice()*100);
+	            	singleStock.setPricaeDay3(row.getCell(12)!=null && row.getCell(12).getCellType()!= CellType.BLANK?row.getCell(12).getNumericCellValue():singleStock.getPricaeDay2()*1.03);
+	            	singleStock.setGainDay3(row.getCell(13)!=null && row.getCell(13).getCellType()!= CellType.BLANK? row.getCell(13).getNumericCellValue():(singleStock.getPricaeDay3()-singleStock.getPricaeDay2())/singleStock.getPricaeDay2()*100);
+	            	
+	            	singleStock.setOpenPrice(row.getCell(14)!=null && row.getCell(14).getCellType()!= CellType.BLANK?row.getCell(14).getNumericCellValue():stocksDataApi.get(2).getOpen());
+	            	singleStock.setHighPrice(row.getCell(15)!=null && row.getCell(15).getCellType()!= CellType.BLANK?row.getCell(15).getNumericCellValue():stocksDataApi.get(2).getHigh());
+	            	singleStock.setLowPrice(row.getCell(16)!=null && row.getCell(16).getCellType()!= CellType.BLANK?row.getCell(16).getNumericCellValue():stocksDataApi.get(2).getLow());
+	            	singleStock.setClosePrice(row.getCell(17)!=null && row.getCell(17).getCellType()!= CellType.BLANK?row.getCell(17).getNumericCellValue():stocksDataApi.get(2).getClose());
+	            	
+	            	singleStock.setMax1(row.getCell(18)!=null && row.getCell(18).getCellType() != CellType.BLANK?row.getCell(18).getNumericCellValue():(singleStock.getHighPrice()-singleStock.getPricaeDay2())/singleStock.getPricaeDay2()*100); 
+	            	
+	            	//
+	            	//System.out.println("singleStock.getHighPrice(): "+singleStock.getHighPrice() +", singleStock.getOpenPrice(): "+singleStock.getOpenPrice());
+	            	singleStock.setMax2(row.getCell(19)!=null && row.getCell(19).getCellType() != CellType.BLANK?row.getCell(19).getNumericCellValue(): (singleStock.getHighPrice()-singleStock.getOpenPrice())/singleStock.getOpenPrice()*100);
+            		
+	            	
+	            	
+	            	//System.out.println("singleStock: "+mapper.writeValueAsString(singleStock));
+	            	excelStockList.add(singleStock);
+	            	//stocksToUpdate.add(price);
+		           
+		            	
+		            
+		            	
+		            	
+				}
+				
+	            
+			}
+			
+			workbook.close();
+	        inputStream.close();
+        }catch(Exception e) {
+        	e.printStackTrace();
+	       
+        }
+        
+        return excelStockList;
+        
+	}
+	
+	public List<ExcelStockStatV2> getExcelStockStatV2(){
+		String excelFilePath = "/Users/leongl/Documents/Day3/Track.xlsx";
+        FileInputStream inputStream;
+        List<ExcelStockStatV2> excelStockStat = new ArrayList<ExcelStockStatV2>();
         try {
         	inputStream = new FileInputStream(new File(excelFilePath));
 			Workbook workbook;
@@ -133,7 +215,7 @@ public class ExcelUtil {
 			Sheet stocks2Sheet = workbook.getSheet("stock2.0"); //Sheet4
 			
 			for(int i= 2; i < stocks2Sheet.getLastRowNum()-1; i++) {
-				ExcelStockStat singleStock = new ExcelStockStat();
+				ExcelStockStatV2 singleStock = new ExcelStockStatV2();
 				Price day2 = new Price();
 				Price day3 = new Price();
 				Row row = stocks2Sheet.getRow(i);
@@ -178,7 +260,7 @@ public class ExcelUtil {
 			workbook.close();
 	        inputStream.close();
         }catch(Exception e) {
-        	
+        	e.printStackTrace();
         }
         
         return excelStockStat;

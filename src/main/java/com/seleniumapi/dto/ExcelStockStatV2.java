@@ -1,6 +1,6 @@
 package com.seleniumapi.dto;
 
-public class ExcelStockStat {
+public class ExcelStockStatV2 {
 	
 	private String date;
 	private String symbol;

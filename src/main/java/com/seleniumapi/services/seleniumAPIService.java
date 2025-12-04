@@ -1,6 +1,7 @@
 package com.seleniumapi.services;
 
 import java.awt.AWTException;
+import com.seleniumapi.repositories.StockRepository;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -8,6 +9,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.math.BigDecimal;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
@@ -39,6 +41,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.apache.commons.math3.analysis.function.Add;import org.apache.http.impl.conn.tsccm.WaitingThread;
+import org.apache.taglibs.standard.tag.common.fmt.ParseDateSupport;
 import org.json.JSONObject;
 import org.openqa.selenium.By;
 import org.openqa.selenium.Keys;
@@ -64,6 +67,7 @@ import org.springframework.web.client.RestTemplate;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ser.std.DateSerializer;
 import com.google.common.net.InetAddresses.TeredoInfo;
@@ -72,7 +76,8 @@ import com.seleniumapi.dto.AlphaVantageInfo;
 import com.seleniumapi.dto.BoughtStockToUpdate;
 import com.seleniumapi.dto.CurrentPrice;
 import com.seleniumapi.dto.DayStat;
-import com.seleniumapi.dto.ExcelStockStat;
+import com.seleniumapi.dto.ExcelStock;
+import com.seleniumapi.dto.ExcelStockStatV2;
 import com.seleniumapi.dto.FilteredStock;
 import com.seleniumapi.dto.HistoricalDataStock;
 import com.seleniumapi.dto.MarketWatchTransaction;
@@ -86,7 +91,7 @@ import com.seleniumapi.utils.ExcelUtil;
 public class seleniumAPIService {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(seleniumAPIService.class);
-	private static final ObjectMapper mapper = new ObjectMapper();
+	private  ObjectMapper mapper = new ObjectMapper();
 
 	@Autowired
 	public Driver webSession;
@@ -108,6 +113,9 @@ public class seleniumAPIService {
 	
 	@Value("${investopediaPassword}")
 	private String investopediaPassword;
+	
+	@Autowired
+	private StockRepository StockRepository;
 	
 	
 	
@@ -162,7 +170,7 @@ public class seleniumAPIService {
 	public List<FilteredStock> updateexcel() {
 		
 		
-		List<ExcelStockStat> excelStockStat = excelUtil.getExcelStockStat();
+		List<ExcelStockStatV2> excelStockStat = excelUtil.getExcelStockStatV2();
 		List<DayStat> daysStats = new ArrayList<DayStat>();
 		/*try {
 			System.out.println("excelStockStat: "+mapper.writeValueAsString(excelStockStat));
@@ -179,7 +187,7 @@ public class seleniumAPIService {
 		int counter = 0;
 		
 		for(int j=0;j<excelStockStat.size();j++) { //
-			ExcelStockStat es = excelStockStat.get(j);
+			ExcelStockStatV2 es = excelStockStat.get(j);
 			
 			if(daysStats.size()==0) {
 				//System.out.println("first date: "+es.getDate());
@@ -293,9 +301,9 @@ public class seleniumAPIService {
 		
 	}
 
-	private void calculateProbabilyty(List<ExcelStockStat> excelStockStat) {
+	private void calculateProbabilyty(List<ExcelStockStatV2> excelStockStat) {
 		
-		for(ExcelStockStat es:excelStockStat) {
+		for(ExcelStockStatV2 es:excelStockStat) {
 			List<Price> historicalPricelist = callHistoricalDataAPICSV(es.getSymbol());
 			
 			FilteredStock analyzeHistoricalData = analyzeHistoricalData(historicalPricelist, es.getSymbol());
@@ -306,9 +314,9 @@ public class seleniumAPIService {
 		
 	}
 
-	private void calculatePotentialGain (List<ExcelStockStat> excelStockStat) {
+	private void calculatePotentialGain (List<ExcelStockStatV2> excelStockStat) {
 		System.out.println("potential gain list");
-		for(ExcelStockStat fs: excelStockStat) {
+		for(ExcelStockStatV2 fs: excelStockStat) {
 			
 			if(fs.getOpenGain()>3) {
 				fs.setPotentialGain(fs.getOpenGain());
@@ -337,7 +345,7 @@ public class seleniumAPIService {
 		}
 	}
 
-	private void getAllStocksData(ExcelStockStat fs) {
+	private void getAllStocksData(ExcelStockStatV2 fs) {
 		List<Price> callHistoricalDataAPICSV = callHistoricalDataAPICSV(fs.getSymbol());
 		FilteredStock analyzeHistoricalData = analyzeHistoricalData(callHistoricalDataAPICSV,fs.getSymbol());
 		for(int i=0;i<callHistoricalDataAPICSV.size();i++) {
@@ -366,16 +374,25 @@ public class seleniumAPIService {
 		getCurrentDatetimeAsEpoch();
 		allStocks = getRAWAdvancedStocks();
 		
+		
 		filteredAllStocks = allStocks
 				.stream()
 				.filter(as ->as.getDayOneClosingPrice()>10 && as.getShareVolume()> 2000000 && as.getShareVolumeAVGThreeMonths()>2000000 && as.getMarketCap()>2 && as.getChangeInPercents()<70 &&(as.getShareVolume()*as.getDayOneClosingPrice()>100000000))
 				.collect(Collectors.toList());
-		
+		try {
+			System.out.println("filtered stockes: "+mapper.writeValueAsString(finalAllStocks));
+		} catch (JsonProcessingException e) {
+			e.printStackTrace();
+		}
 		finalAllStocks = filterByHistoricalData(filteredAllStocks);
 		
 		//Sort the results by success rate
 		Collections.sort(finalAllStocks, (FilteredStock fs1, FilteredStock fs2) -> Double.compare(fs1.getPropabiltyScore(), fs2.getPropabiltyScore()));
-		System.out.println("finalAllStocks: "+finalAllStocks.toString());
+		try {
+			System.out.println("finalAllStocks: "+mapper.writeValueAsString(finalAllStocks));
+		} catch (JsonProcessingException e) {
+			e.printStackTrace();
+		}
 		//Reverse the order to descending 
 		Collections.reverse(finalAllStocks);
 		
@@ -410,12 +427,12 @@ public class seleniumAPIService {
 		
 	}
 
-	private List<Price> callHistoricalDataAPICSV(String symbol) {
+	public List<Price> callHistoricalDataAPICSV(String symbol) {
 		List<Price> pricesList = new ArrayList<Price>();
 		String startDate = "1581305632";
 		
 		String endDate = getCurrentDatetimeAsEpoch();
-		String uri = "https://query1.finance.yahoo.com/v7/finance/download/"+symbol+"?period1="+startDate+"&period2="+endDate+"&interval=1d&events=history&includeAdjustedClose=false";
+		String uri = "https://query1.finance.yahoo.com/v7/finance/download/"+symbol+"?period1="+startDate+"&period2="+endDate+"&interval=1d&events=history&includeAdjustedClose=true";
 		try {
 			
 			InputStream input = new URL(uri).openStream();
@@ -438,6 +455,47 @@ public class seleniumAPIService {
 
 		return pricesList;
 	}
+	
+	public List<Price> callThreeDatsData(String symbol, String date) {
+		try {
+			List<Price> pricesList = callHistoricalDataAPICSV(symbol);
+			String parsedDate = ParseDateSupport(date);
+			List<Price> responseList = new ArrayList<>();
+			//System.out.println("parsedDate: "+parsedDate);
+			for(int i=0; i< pricesList.size(); i++) {
+				Price p = pricesList.get(i);
+				//System.out.println(p.getDate());
+				if(p.getDate().equalsIgnoreCase(parsedDate)) {
+					responseList.add(p);
+					responseList.add(pricesList.get(i+1));
+					responseList.add(pricesList.get(i+2));
+					return responseList;
+					
+				}
+				
+			}
+			return responseList;
+		}catch(Exception e) {
+			//System.out.println("Error getting data for "+symbol);
+			return new ArrayList<Price>();
+		}
+		
+		
+		
+
+		
+	}
+
+	private String ParseDateSupport(String date) {
+		String[] dateAsArrayString = date.split("-");
+		
+		return dateAsArrayString[2]+"-"+parseMonthDay(dateAsArrayString[0])+"-"+parseMonthDay(dateAsArrayString[1]);
+	}
+
+	private String parseMonthDay(String value) {
+		
+		return value.length()==1?"0"+value:value;
+	}
 
 	private String getCurrentDatetimeAsEpoch() {
 		
@@ -452,7 +510,7 @@ public class seleniumAPIService {
 			Date date = crunchifyFormat.parse(currentTime);
  
 			// getTime() returns the number of milliseconds since January 1, 1970, 00:00:00 GMT represented by this Date object.
-			long epochTime = date.getTime();
+			long epochTime = date.getTime()/1000;
  
 			String epochAsString = String.valueOf(epochTime);
 		    return epochAsString;
@@ -778,16 +836,22 @@ public class seleniumAPIService {
 		webSession.init();
 
 		webSession.instance.get("https://finance.yahoo.com/quote/" + symbol + "?p=" + symbol);
-		List<WebElement> alldata = webSession.instance.findElements(By.xpath("//td[@class='Ta(end) Fw(b) Lh(14px)']"));
+		List<WebElement> alldata = webSession.instance.findElements(By.xpath("//td[@class='Ta(end) Fw(600) Lh(14px)']"));
+		try {
+			String yearRange = alldata.get(5).getText();
+			int hyphen = yearRange.indexOf("-");
 
-		String yearRange = alldata.get(5).getText();
-		int hyphen = yearRange.indexOf("-");
+			String lastYearHighestSTRING = yearRange.substring(hyphen + 1).trim();
+			double lastYearHighest = Double.parseDouble(lastYearHighestSTRING);
+			webSession.close();
+			return lastYearHighest;
+		}catch(Exception e) {
+			webSession.close();
+			return 9999;
+		}
+		
 
-		String lastYearHighestSTRING = yearRange.substring(hyphen + 1).trim();
-		double lastYearHighest = Double.parseDouble(lastYearHighestSTRING);
-
-		webSession.close();
-		return lastYearHighest;
+		
 	}
 
 
@@ -1255,6 +1319,57 @@ public class seleniumAPIService {
 		//System.out.println("finalDate: "+finalDate);
 		
 		return finalDate;
+	}
+
+	public void getDataForStock(String symbol, String date) {
+		List<String> symbols = excelUtil.getSymbolsFromExcel(date);
+		List<Price> priceList = new ArrayList<Price>();
+		for(String s: symbols) {
+			List<Price> callHistoricalDataAPICSV = callHistoricalDataAPICSV(s);
+			
+			for(int i=0; i<callHistoricalDataAPICSV.size();i++) {
+				Price p = callHistoricalDataAPICSV.get(i);
+				if(p.getDate().equalsIgnoreCase(date)) {
+					Price previousDay = callHistoricalDataAPICSV.get(i-1);
+					//System.out.println(s+", "+nextPrice.getOpen()+", "+nextPrice.getHigh()+", "+nextPrice.getLow()+", "+nextPrice.getClose());
+					System.out.println(p.getClose()+", "+(p.getClose()-previousDay.getClose())/previousDay.getClose()+", "+p.getVolume());
+					
+				}
+			}
+		}
+		
+		
+	}
+
+	public void migrateData() {
+		
+		List<ExcelStock> excelStockResponse = excelUtil.getExcelStockStat();
+		
+		
+		try {
+			ExcelStock.class.getFields();
+			System.out.println("ExcelStockResponse: "+mapper.writeValueAsString(excelStockResponse));
+			
+			JsonNode tree1 = mapper.readTree(mapper.writeValueAsString(excelStockResponse.get(0)));
+			//JsonNode tree2 = mapper.readTree(mapper.writeValueAsString(excelStockResponse.get(1)));
+			Iterator<String> iterator = tree1.fieldNames();
+			List<String> keys = new ArrayList<>();
+			iterator.forEachRemaining(e -> keys.add(e));
+			//System.out.println("keys: "+mapper.writeValueAsString(keys));
+			
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		for(int i=0; i<excelStockResponse.size(); i++) {
+			System.out.println("itr: "+i+": "+excelStockResponse.get(i).getSymbol()+", "+excelStockResponse.get(i).getMax2());
+			new BigDecimal(excelStockResponse.get(i).getMax2());
+		}
+			
+		//System.out.println("test: "+StockRepository.count());
+		int size = StockRepository.updateStocks(excelStockResponse);
+		//System.out.println("size: "+size);
+		
 	}
 
 	
